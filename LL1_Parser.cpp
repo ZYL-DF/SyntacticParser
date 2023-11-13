@@ -1,6 +1,7 @@
 #include <iostream>
 #include <vector>
 #include <map>
+#include <string>
 #include <set>
 
 using namespace std;
@@ -33,20 +34,24 @@ public:
 
 private:
     struct expressionPositioner {
+
         int id;
         // 对应文法句子的id
         string signal;
         // 对应文法句子得到的FIRST或FOLLOW集合中的符号
     };
-    vector<string> terminal = {"+", "-", "*", "/", "(", ")", "num"};
-    vector<string> nonTerminal = {"E",
-                                  "T",
-                                  "A",
-                                  "B",
-                                  "F"};
+
+    struct expressionPositionerFunc {
+        bool operator()(const expressionPositioner &e1, const expressionPositioner &e2) const {
+            return e1.id > e2.id;
+        }
+    };
+
+    vector<string> terminal;
+    vector<string> nonTerminal;
     map<string, string> grammar;
-    map<string, vector<expressionPositioner>> firstSet;
-    map<string, vector<expressionPositioner>> followSet;
+    map<string, set<expressionPositioner,expressionPositionerFunc>> firstSet;
+    map<string, set<expressionPositioner,expressionPositionerFunc>> followSet;
 
     void init() {
         terminal = {"+", "-", "*", "/", "(", ")", "num"};
@@ -63,25 +68,39 @@ private:
                 {"F", "(E)"},
                 {"F", "num"},
         };
-        firstSet.insert(pair<string, vector<expressionPositioner>>("E", NULL));
-        firstSet.insert(pair<string, vector<expressionPositioner>>("A", NULL));
-        firstSet.insert(pair<string, vector<expressionPositioner>>("B", NULL));
-        firstSet.insert(pair<string, vector<expressionPositioner>>("T", NULL));
-        firstSet.insert(pair<string, vector<expressionPositioner>>("F", NULL));
+        firstSet.insert(pair<string, set<expressionPositioner>>("E", NULL));
+        firstSet.insert(pair<string, set<expressionPositioner>>("A", NULL));
+        firstSet.insert(pair<string, set<expressionPositioner>>("B", NULL));
+        firstSet.insert(pair<string, set<expressionPositioner>>("T", NULL));
+        firstSet.insert(pair<string, set<expressionPositioner>>("F", NULL));
 
-        followSet.insert(pair<string, vector<expressionPositioner>>("E", NULL));
-        followSet.insert(pair<string, vector<expressionPositioner>>("A", NULL));
-        followSet.insert(pair<string, vector<expressionPositioner>>("B", NULL));
-        followSet.insert(pair<string, vector<expressionPositioner>>("T", NULL));
-        followSet.insert(pair<string, vector<expressionPositioner>>("F", NULL));
+        followSet.insert(pair<string, set<expressionPositioner>>("E", NULL));
+        followSet.insert(pair<string, set<expressionPositioner>>("A", NULL));
+        followSet.insert(pair<string, set<expressionPositioner>>("B", NULL));
+        followSet.insert(pair<string, set<expressionPositioner>>("T", NULL));
+        followSet.insert(pair<string, set<expressionPositioner>>("F", NULL));
     }
 
     map<string, vector<string>> getFirstSet() {
         // 获得文法的First集合
-        for(auto item : grammar) {
-            auto position = find(terminal.begin(),terminal.end(),item.second.at(0));
-
+        for (const auto &item: grammar) {
+            string result = findTerminal(item.second);
+            if (!result.empty()) {
+                // 推导式右侧第一个符号就是终结符，直接加入first集合
+                firstSet.find(item.first)->second.insert()
+            }
         }
+    }
+
+    string findTerminal(const string &str) {
+        for (const auto &signal: terminal) {
+            size_t pos = str.find(signal, 0);
+            if (pos == 0) {
+                return signal;
+            }
+        }
+        // 第一位不是非终结符
+        return "";
     }
 
 
