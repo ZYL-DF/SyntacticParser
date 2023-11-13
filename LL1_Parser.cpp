@@ -116,6 +116,9 @@ private:
         }
     }
 
+    /**
+     * 获得文法的First集合的递归函数
+     */
     void getDeepFirstSet(const pair<int, map<string, string>> &item, const pair<int, map<string, string>> &target) {
         auto grammarExpr = item.second;
         string result = findTerminal(grammarExpr.begin()->second);
@@ -149,6 +152,13 @@ private:
         }
         // 第一位不是非终结符
         return "";
+    }
+
+    /**
+     * 获得文法的Follow集合
+     */
+    void getFollowSet() {
+
     }
 
 };
