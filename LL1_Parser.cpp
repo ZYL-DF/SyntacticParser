@@ -1,4 +1,5 @@
 #include <iostream>
+#include <utility>
 #include <vector>
 #include <map>
 #include <string>
@@ -20,20 +21,24 @@ using namespace std;
 */
 class LL1Parser {
 public:
-    LL1Parser() = default;
+    map<int, map<string, string>> unsetGrammar;
+
+    explicit LL1Parser(map<int, map<string, string>> grammar) {
+        unsetGrammar = std::move(grammar);
+    };
 
     void parse() {
         // 语法解析器主函数
         init();
         getFirstSet();
-        // getFollowSet();
+        getFollowSet();
         // generateTable();
         // analyse();
         // printResult();
     }
 
 private:
-    struct expressionPositioner {
+    struct ExpressionPositioner {
 
         int id;
         // 对应文法句子的id
@@ -42,7 +47,7 @@ private:
     };
 
     struct expressionPositionerFunc {
-        bool operator()(const expressionPositioner &e1, const expressionPositioner &e2) const {
+        bool operator()(const ExpressionPositioner &e1, const ExpressionPositioner &e2) const {
             if (e1.id == e2.id) {
                 return e1.signal < e2.signal;
             } else {
@@ -51,11 +56,24 @@ private:
         }
     };
 
+    struct Expression {
+
+        Expression(int id, string start, const vector<string> &anEnd) : id(id), start(std::move(start)), end(anEnd) {}
+
+        int id;
+        // 语法推导式id
+        string start;
+        // 语法推导式左边的符号
+        vector<string> end;
+        // 语法推导式右边的符号集
+    };
+
     vector<string> terminal;
     vector<string> nonTerminal;
-    map<int, map<string, string>> grammar;
-    map<string, set<expressionPositioner, expressionPositionerFunc>> firstSet;
-    map<string, set<expressionPositioner, expressionPositionerFunc>> followSet;
+    // map<int, map<string, string>> grammar;
+    vector<Expression> grammar;
+    map<string, set<ExpressionPositioner, expressionPositionerFunc>> firstSet;
+    map<string, set<ExpressionPositioner, expressionPositionerFunc>> followSet;
 
     /**
      * 初始化FirstSet和FollowSet的pair
@@ -63,7 +81,21 @@ private:
      * @return pair
      */
     auto generatePair(const string &str) {
-        return pair(str, set<expressionPositioner, expressionPositionerFunc>());
+        return pair(str, set<ExpressionPositioner, expressionPositionerFunc>());
+    }
+
+    auto generateSignalSet(const string& sentence,const vector<string>& wordList) {
+        string sentenceCopy = sentence;
+        vector<string> result;
+        while(!sentenceCopy.empty()) {
+            for(const auto& word:wordList) {
+                if(sentenceCopy.find(word) == 0){
+                    result.push_back(word);
+                    sentenceCopy = sentenceCopy.substr(word.length());
+                }
+            }
+        }
+        return result;
     }
 
     /**
@@ -73,18 +105,14 @@ private:
         terminal = {"+", "-", "*", "/", "(", ")", "num"};
         nonTerminal = {"E", "T", "A", "B", "F"};
 
-        grammar = {
-                {1, map<string, string>{{"E", "TA"}}},
-                {2, map<string, string>{{"A", "+TA"}}},
-                {3, map<string, string>{{"A", "-TA"}}},
-                {4, map<string, string>{{"A", "ε"}}},
-                {5, map<string, string>{{"T", "FB"}}},
-                {6, map<string, string>{{"B", "*FB"}}},
-                {7, map<string, string>{{"B", "/FB"}}},
-                {8, map<string, string>{{"B", "ε"}}},
-                {9, map<string, string>{{"F", "(E)"}}},
-                {10, map<string, string>{{"F", "num"}}},
-        };
+        vector<string> signalSet;// 全部符号集
+        merge(terminal.begin(), terminal.end(), nonTerminal.begin(), nonTerminal.end(), std::back_inserter(signalSet));
+        signalSet.emplace_back("ε");
+        for (auto sentence: unsetGrammar) {
+            Expression expression(sentence.first, sentence.second.begin()->first, generateSignalSet(sentence.second.begin()->second,signalSet));
+            grammar.push_back(expression);
+        }
+
         firstSet.insert(generatePair("E"));
         firstSet.insert(generatePair("A"));
         firstSet.insert(generatePair("B"));
@@ -96,6 +124,9 @@ private:
         followSet.insert(generatePair("B"));
         followSet.insert(generatePair("T"));
         followSet.insert(generatePair("F"));
+
+        ExpressionPositioner e{.id = 1, .signal = "$"};
+        followSet.find("E")->second.insert(e);
     }
 
     /**
@@ -104,7 +135,7 @@ private:
     void getFirstSet() {
 
         for (const auto &item: grammar) {
-            getDeepFirstSet(item, item);
+            getDeepFirstSet(item, item, 0);
         }
 
         for (const auto &item: firstSet) {
@@ -119,34 +150,59 @@ private:
     /**
      * 获得文法的First集合的递归函数
      */
-    void getDeepFirstSet(const pair<int, map<string, string>> &item, const pair<int, map<string, string>> &target) {
-        auto grammarExpr = item.second;
-        string result = findTerminal(grammarExpr.begin()->second);
+    void getDeepFirstSet(const Expression &item, const Expression &father,
+                         int itemPos) {
+        auto grammarExpr = item.end;
+        string result = findTerminal(item.end);
         if (!result.empty()) {
             // 推导式右侧第一个符号就是终结符，直接加入first集合
-            expressionPositioner e{.id = target.first, .signal = result};
-            firstSet.find(target.second.begin()->first)->second.insert(e);
-            // cout << "add (" << e.id << "," << e.signal << ") into " << target.second.begin()->first << endl;
-        } else if (grammarExpr.begin()->second == "ε") {
+            addFirstSet(father.id, father.start, result);
+
+        } else if (item.end[0] == "ε") {
             // 推导式右侧以ε结尾
-            expressionPositioner e{.id = target.first, .signal = "ε"};
-            firstSet.find(target.second.begin()->first)->second.insert(e);
+            // 只能给自己的推导式的左侧First集加入,不能给父推导式First集加入
+            addFirstSet(item.id, item.start, "ε");
+
         } else {
             // 推导式右侧第一个符号是非终结符，递归以这个非终结符为推导式左侧的所有推导式来建立first集合
             for (const auto &expr: grammar) {
-                if (expr.second.begin()->first[0] == grammarExpr.begin()->second[0]) {
-                    // cout << "recursive " << grammarExpr.begin()->first << " into " << grammarExpr.begin()->second[0]<< endl;
-                    getDeepFirstSet(expr, target);
+                if (expr.start == item.end[itemPos]) {
+
+                    getDeepFirstSet(expr, item, itemPos);
+                    for (const auto &expr_first: firstSet.find(expr.start)->second) {
+                        // 将子非终结符已经构建的First集合,加入到父非终结符的First集合
+                        if (expr_first.signal != "ε") {
+                            // 如果有子推导式没有空串的推导,直接将子推导式的First集合加入到父推导式的First集合
+                            addFirstSet(item.id, item.start, expr_first.signal);
+                        }/* else {
+                            // 如果有子推导式有空串的推导
+                            if (itemPos == grammarExpr.begin()->second.length() - 1) {
+                                // 已经是最后一个子推导式还是有空串,那么父推导式也有空串推导
+                                addFirstSet(item.first, item.second.begin()->first, "ε");
+                            } else {
+                                // 否则,进行后面一个符号的判断
+                                string next = findTerminal(&(grammarExpr.begin()->second[itemPos + 1]));
+                                if(next.empty()) {
+                                    // 非终结符,需要递归
+
+                                    const pair<int, map<string, string>> tempPair();
+                                    getDeepFirstSet(tempPair, item, itemPos + 1);
+                                } else {
+                                    // 终结符,父推导式FIRST集合加入该终结符
+                                    addFirstSet(item.first, item.second.begin()->first, next);
+                                }
+                            }
+                        }*/
+                    }
                 }
             }
         }
     }
 
 
-    string findTerminal(const string &str) {
+    string findTerminal(const vector<string>& end) {
         for (const auto &signal: terminal) {
-            size_t pos = str.find(signal, 0);
-            if (pos == 0) {
+            if (signal == end[0]) {
                 return signal;
             }
         }
@@ -154,26 +210,51 @@ private:
         return "";
     }
 
-    string findNonTerminal(const string &str) {
+    void findNonTerminal(const string &str, int &nonTerminalPos, string &result) {
         map<int, string> findPos;
         for (const auto &signal: nonTerminal) {
             size_t pos = str.find(signal, 0);
-            findPos.insert(pair<int, string>(pos , signal));
+            if (pos != -1) {
+                findPos.insert(pair<int, string>(pos, signal));
+            }
         }
-        return findPos.begin()->second;
+        if (!findPos.empty()) {
+            nonTerminalPos = findPos.begin()->first;
+            result = findPos.begin()->second;
+        } else {
+            result = "";
+        }
     }
 
     /**
      * 获得文法的Follow集合
      */
     void getFollowSet() {
+        for (const auto &item: grammar) {
 
+        }
     }
 
+    void addFirstSet(int id, const string &target, string result) {
+        ExpressionPositioner e{.id = id, .signal = std::move(result)};
+        firstSet.find(target)->second.insert(e);
+    }
 };
 
 int main() {
-    LL1Parser ll1Parser;
+    map<int, map<string, string>> grammar = {
+            {1,  map<string, string>{{"E", "TA"}}},
+            {2,  map<string, string>{{"A", "+TA"}}},
+            {3,  map<string, string>{{"A", "-TA"}}},
+            {4,  map<string, string>{{"A", "ε"}}},
+            {5,  map<string, string>{{"T", "FB"}}},
+            {6,  map<string, string>{{"B", "*FB"}}},
+            {7,  map<string, string>{{"B", "/FB"}}},
+            {8,  map<string, string>{{"B", "ε"}}},
+            {9,  map<string, string>{{"F", "(E)"}}},
+            {10, map<string, string>{{"F", "num"}}},
+    };
+    LL1Parser ll1Parser(grammar);
     ll1Parser.parse();
     getchar();
     return 0;
