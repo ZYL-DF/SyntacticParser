@@ -74,15 +74,15 @@ private:
         nonTerminal = {"E", "T", "A", "B", "F"};
 
         grammar = {
-                {1,  map<string, string>{{"E", "TA"}}},
-                {2,  map<string, string>{{"A", "+TA"}}},
-                {3,  map<string, string>{{"A", "-TA"}}},
-                {4,  map<string, string>{{"A", "ε"}}},
-                {5,  map<string, string>{{"T", "FB"}}},
-                {6,  map<string, string>{{"B", "*FB"}}},
-                {7,  map<string, string>{{"B", "/FB"}}},
-                {8,  map<string, string>{{"B", "ε"}}},
-                {9,  map<string, string>{{"F", "(E)"}}},
+                {1, map<string, string>{{"E", "TA"}}},
+                {2, map<string, string>{{"A", "+TA"}}},
+                {3, map<string, string>{{"A", "-TA"}}},
+                {4, map<string, string>{{"A", "ε"}}},
+                {5, map<string, string>{{"T", "FB"}}},
+                {6, map<string, string>{{"B", "*FB"}}},
+                {7, map<string, string>{{"B", "/FB"}}},
+                {8, map<string, string>{{"B", "ε"}}},
+                {9, map<string, string>{{"F", "(E)"}}},
                 {10, map<string, string>{{"F", "num"}}},
         };
         firstSet.insert(generatePair("E"));
@@ -152,6 +152,15 @@ private:
         }
         // 第一位不是非终结符
         return "";
+    }
+
+    string findNonTerminal(const string &str) {
+        map<int, string> findPos;
+        for (const auto &signal: nonTerminal) {
+            size_t pos = str.find(signal, 0);
+            findPos.insert(pair<int, string>(pos , signal));
+        }
+        return findPos.begin()->second;
     }
 
     /**
