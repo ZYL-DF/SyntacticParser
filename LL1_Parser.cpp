@@ -4,6 +4,7 @@
 #include <map>
 #include <string>
 #include <set>
+#include <stack>
 
 using namespace std;
 
@@ -27,13 +28,11 @@ public:
         unsetGrammar = std::move(grammar);
     };
 
-    void parse() {
+
+    void parse(const string &str) {
         // 语法解析器主函数
         init();
-        getFirstSet();
-        getFollowSet();
-        // generateTable();
-        // analyse();
+        analyse(str);
         // printResult();
     }
 
@@ -68,28 +67,36 @@ private:
         // 语法推导式右边的符号集
     };
 
+    struct PredictIndex {
+        PredictIndex(string signal, const map<string, Expression> &predictor) : signal(std::move(signal)),
+                                                                                predictor(predictor) {}
+
+        string signal;
+        map<string, Expression> predictor;
+    };
+
     vector<string> terminal;
     vector<string> nonTerminal;
-    // map<int, map<string, string>> grammar;
     vector<Expression> grammar;
     map<string, set<ExpressionPositioner, expressionPositionerFunc>> firstSet;
     map<string, set<ExpressionPositioner, expressionPositionerFunc>> followSet;
+    vector<PredictIndex> predictTable;
 
     /**
      * 初始化FirstSet和FollowSet的pair
      * @param str
      * @return pair
      */
-    auto generatePair(const string &str) {
-        return pair(str, set<ExpressionPositioner, expressionPositionerFunc>());
+    pair<string ,set<ExpressionPositioner,expressionPositionerFunc>> generatePair(const string &str) {
+        return pair<string ,set<ExpressionPositioner,expressionPositionerFunc>> (str, set<ExpressionPositioner, expressionPositionerFunc>());
     }
 
-    auto generateSignalSet(const string& sentence,const vector<string>& wordList) {
+    vector<string> generateSignalSet(const string &sentence, const vector<string> &wordList) {
         string sentenceCopy = sentence;
         vector<string> result;
-        while(!sentenceCopy.empty()) {
-            for(const auto& word:wordList) {
-                if(sentenceCopy.find(word) == 0){
+        while (!sentenceCopy.empty()) {
+            for (const auto &word: wordList) {
+                if (sentenceCopy.find(word) == 0) {
                     result.push_back(word);
                     sentenceCopy = sentenceCopy.substr(word.length());
                 }
@@ -109,7 +116,8 @@ private:
         merge(terminal.begin(), terminal.end(), nonTerminal.begin(), nonTerminal.end(), std::back_inserter(signalSet));
         signalSet.emplace_back("ε");
         for (auto sentence: unsetGrammar) {
-            Expression expression(sentence.first, sentence.second.begin()->first, generateSignalSet(sentence.second.begin()->second,signalSet));
+            Expression expression(sentence.first, sentence.second.begin()->first,
+                                  generateSignalSet(sentence.second.begin()->second, signalSet));
             grammar.push_back(expression);
         }
 
@@ -127,6 +135,10 @@ private:
 
         ExpressionPositioner e{.id = 1, .signal = "$"};
         followSet.find("E")->second.insert(e);
+
+        getFirstSet();
+        getFollowSet();
+        generateTable();
     }
 
     /**
@@ -138,13 +150,13 @@ private:
             getDeepFirstSet(item, item, 0);
         }
 
-        for (const auto &item: firstSet) {
+        /*for (const auto &item: firstSet) {
             cout << item.first << ":" << endl;
             for (const auto &index: item.second) {
                 cout << "(" << index.id << "," << index.signal << ")" << endl;
             }
             cout << endl;
-        }
+        }*/
     }
 
     /**
@@ -152,7 +164,7 @@ private:
      */
     void getDeepFirstSet(const Expression &item, const Expression &father,
                          int itemPos) {
-        auto grammarExpr = item.end;
+
         string result = findTerminal(item.end);
         if (!result.empty()) {
             // 推导式右侧第一个符号就是终结符，直接加入first集合
@@ -169,30 +181,25 @@ private:
                 if (expr.start == item.end[itemPos]) {
 
                     getDeepFirstSet(expr, item, itemPos);
-                    for (const auto &expr_first: firstSet.find(expr.start)->second) {
+                    bool isEpsilon = false;
+                    for (const auto &expr_first: firstSet[expr.start]) {
                         // 将子非终结符已经构建的First集合,加入到父非终结符的First集合
                         if (expr_first.signal != "ε") {
                             // 如果有子推导式没有空串的推导,直接将子推导式的First集合加入到父推导式的First集合
                             addFirstSet(item.id, item.start, expr_first.signal);
-                        }/* else {
-                            // 如果有子推导式有空串的推导
-                            if (itemPos == grammarExpr.begin()->second.length() - 1) {
-                                // 已经是最后一个子推导式还是有空串,那么父推导式也有空串推导
-                                addFirstSet(item.first, item.second.begin()->first, "ε");
-                            } else {
-                                // 否则,进行后面一个符号的判断
-                                string next = findTerminal(&(grammarExpr.begin()->second[itemPos + 1]));
-                                if(next.empty()) {
-                                    // 非终结符,需要递归
-
-                                    const pair<int, map<string, string>> tempPair();
-                                    getDeepFirstSet(tempPair, item, itemPos + 1);
-                                } else {
-                                    // 终结符,父推导式FIRST集合加入该终结符
-                                    addFirstSet(item.first, item.second.begin()->first, next);
-                                }
-                            }
-                        }*/
+                        } else {
+                            isEpsilon = true;
+                        }
+                    }
+                    if (isEpsilon) {
+                        // 如果子推导式出现空串推导
+                        if (itemPos == item.end.size() - 1) {
+                            // 已经是最后一个符号仍为空串,说明父推导式First需要加入空串
+                            addFirstSet(item.id, item.start, "ε");
+                        } else {
+                            // 否则,检查推导式的下一个符号
+                            getDeepFirstSet(expr, item, itemPos + 1);
+                        }
                     }
                 }
             }
@@ -200,7 +207,7 @@ private:
     }
 
 
-    string findTerminal(const vector<string>& end) {
+    string findTerminal(const vector<string> &end) {
         for (const auto &signal: terminal) {
             if (signal == end[0]) {
                 return signal;
@@ -210,34 +217,272 @@ private:
         return "";
     }
 
-    void findNonTerminal(const string &str, int &nonTerminalPos, string &result) {
-        map<int, string> findPos;
-        for (const auto &signal: nonTerminal) {
-            size_t pos = str.find(signal, 0);
-            if (pos != -1) {
-                findPos.insert(pair<int, string>(pos, signal));
-            }
-        }
-        if (!findPos.empty()) {
-            nonTerminalPos = findPos.begin()->first;
-            result = findPos.begin()->second;
-        } else {
-            result = "";
-        }
-    }
-
     /**
      * 获得文法的Follow集合
      */
     void getFollowSet() {
-        for (const auto &item: grammar) {
+        bool isChanged = true;
+        while (isChanged) {
+            isChanged = false;
+            auto followSetPre = followSet;
+            for (const auto &item: grammar) {
+                for (int pos = 0; pos < item.end.size(); pos++) {
+                    if (std::find(nonTerminal.begin(), nonTerminal.end(), item.end[pos]) != nonTerminal.end()) {
+                        // 当前符号为非终结符
+                        if (pos == item.end.size() - 1) {
+                            // 为推导式最后一个符号,A->αB,让follow(A)->follow(B)
+                            for (const auto &followSignal: followSet[item.start]) {
+                                addFollowSet(1, item.end[pos], followSignal.signal);
+                            }
+                        } else {
+                            if (isEmpty(item.end[pos + 1]) && isNotEmpty(item.end[pos + 1])) {
+                                // A->αBε,让follow(A)->follow(B)
+                                for (const auto &followSignal: followSet[item.start]) {
+                                    addFollowSet(1, item.end[pos], followSignal.signal);
+                                }
+                            }
+                            // 不为推导式最后一个符号,A->αBb,follow(B) = first(b)
+                            if (std::find(nonTerminal.begin(), nonTerminal.end(), item.end[pos + 1]) !=
+                                nonTerminal.end()) {
 
+                                // b为非终结符开头
+                                for (const auto &firstSignal: firstSet[item.end[pos + 1]]) {
+                                    if (firstSignal.signal != "ε") {
+                                        addFollowSet(1, item.end[pos], firstSignal.signal);
+                                    }
+                                }
+
+                            } else {
+                                // b为终结符开头且不为ε,直接加入
+                                if (item.end[pos + 1] != "ε") {
+                                    addFollowSet(1, item.end[pos], item.end[pos + 1]);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            for (const auto &item: followSetPre) {
+                if (followSet[item.first].size() != item.second.size()) {
+                    isChanged = true;
+                }
+            }
         }
+
+        /*for (const auto &item: followSet) {
+            cout << item.first << ":" << endl;
+            for (const auto &index: item.second) {
+                cout << "(" << index.id << "," << index.signal << ")" << endl;
+            }
+            cout << endl;
+        }*/
     }
 
     void addFirstSet(int id, const string &target, string result) {
         ExpressionPositioner e{.id = id, .signal = std::move(result)};
-        firstSet.find(target)->second.insert(e);
+        firstSet[target].insert(e);
+    }
+
+    void addFollowSet(int id, const string &target, string result) {
+        ExpressionPositioner e{.id = id, .signal = std::move(result)};
+        followSet[target].insert(e);
+    }
+
+    bool isEmpty(const string &str) {
+        for (auto express: grammar) {
+            if (express.start == str && (std::find(express.end.begin(), express.end.end(), "ε") != express.end.end())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    bool isNotEmpty(const string &str) {
+        for (const auto &express: grammar) {
+            if (express.start == str) {
+                for (const auto &item: firstSet[express.start]) {
+                    if (item.signal != "ε") {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    Expression getExpression(int id) {
+        for (auto expression: grammar) {
+            if (expression.id == id) {
+                return expression;
+            }
+        }
+        // 这里默认id是合法的
+    }
+
+    // 根据first集合和follow集合构造预测分析表
+    void generateTable() {
+        for (const auto &signal: nonTerminal) {
+
+            map<string, Expression> predictor;
+            Expression errorExpr(-1, "error", vector<string>(1, "error"));
+            for (const auto &item: terminal) {
+                predictor.insert(map<string, Expression>::value_type(item, errorExpr));
+            }
+            predictor.insert(map<string, Expression>::value_type("$", errorExpr));
+
+            for (const auto &firstItem: firstSet[signal]) {
+                if (firstItem.signal != "ε") {
+                    Expression expression = getExpression(firstItem.id);
+                    predictor.find(firstItem.signal)->second = expression;
+                } else {
+                    for (const auto &followItem: followSet[signal]) {
+                        Expression expression = getExpression(firstItem.id);
+                        predictor.find(followItem.signal)->second = expression;
+                    }
+                }
+            }
+            PredictIndex index(signal, predictor);
+            predictTable.push_back(index);
+        }
+
+        // printTable();
+    }
+
+    PredictIndex getPrediction(const string &signal) {
+        for (const auto &item: predictTable) {
+            if (item.signal == signal) {
+                return item;
+            }
+        }
+    }
+
+    void printTable() {
+        cout << "\t";
+        for (const auto &item: terminal) {
+            cout << item << "\t\t";
+        }
+        cout << "$" << endl;
+        for (const auto &item: predictTable) {
+            cout << item.signal << "\t";
+            for (const auto &signal: terminal) {
+                cout << item.predictor.find(signal)->second.start << "->";
+                for (const auto &character: item.predictor.find(signal)->second.end) {
+                    cout << character;
+                }
+                cout << "\t";
+            }
+            cout << item.predictor.find("$")->second.start << "->";
+            for (const auto &character: item.predictor.find("$")->second.end) {
+                cout << character;
+            }
+            cout << endl;
+        }
+    }
+
+    string getStackContent(stack<string> stackIndex, bool isReverse) {
+
+        string result;
+        while (!stackIndex.empty()) {
+            if (stackIndex.top() == "num") {
+                result += "n";
+            } else {
+                result += stackIndex.top();
+            }
+            stackIndex.pop();
+        }
+        if (isReverse) {
+            // 反转默认是$E
+            reverse(result.begin(), result.end());
+        }
+        return result;
+    }
+
+    /**
+     * 分析函数
+     */
+    void analyse(const string &input) {
+        string str;
+        for (auto character: input) {
+            if (character == 'n') {
+                str += "num";
+            } else {
+                str += character;
+            }
+        }
+        stack<string> analyticalStack;
+        // 分析栈
+        stack<string> inputStack;
+        // 输入栈
+
+        analyticalStack.emplace("$");
+        analyticalStack.emplace("E");
+        inputStack.emplace("$");
+        vector<string> signalSet;// 全部符号集
+        merge(terminal.begin(), terminal.end(),
+              nonTerminal.begin(), nonTerminal.end(),
+              std::back_inserter(signalSet));
+        vector<string> inputSet = generateSignalSet(str, signalSet);
+        for_each(inputSet.rbegin(), inputSet.rend(),
+                 [&inputStack](const string &input) { inputStack.emplace(input); });
+
+        // 符号栈和输入栈初始化完成
+
+        /*$E	n+$	1
+        $AT	n+$	5
+        $ABF	n+$	10
+        $ABn	n+$	match
+        $AB	+$	8
+        $A	+$	2
+        $AT+	+$	match
+        $AT	$	error*/
+        while (analyticalStack.size() > 1 || inputStack.size() > 1) {
+            if (analyticalStack.top() == inputStack.top()) {
+                // 规约
+                cout << getStackContent(analyticalStack, true) << "\t"
+                     << getStackContent(inputStack, false)
+                     << "\tmatch"
+                     << endl;
+                analyticalStack.pop();
+                inputStack.pop();
+            } else {
+                // 移进
+                PredictIndex predictIndex = getPrediction(analyticalStack.top());
+                Expression expression = predictIndex.predictor.find(inputStack.top())->second;
+                if (expression.id != -1) {
+                    cout << getStackContent(analyticalStack, true) << "\t"
+                         << getStackContent(inputStack, false)
+                         << "\t"
+                         << expression.id
+                         << endl;
+                    analyticalStack.pop();
+                    if(expression.end[0] != "ε") {
+                        for_each(expression.end.rbegin(), expression.end.rend(),
+                                 [&analyticalStack](const string &item) {
+                                     analyticalStack.emplace(item);
+                                 });
+                    }
+
+                } else {
+                    // 预测表中没有对应的预测推导,报错
+                    cout << getStackContent(analyticalStack, true) << "\t"
+                         << getStackContent(inputStack, false)
+                         << "\terror"
+                         << endl;
+                    break;
+                }
+            }
+        }
+        if (analyticalStack.top() == "$" && inputStack.top() == "$") {
+            cout << getStackContent(analyticalStack, true) << "\t"
+                 << getStackContent(inputStack, false)
+                 << "\taccept"
+                 << endl;
+        } else {
+            cout << getStackContent(analyticalStack, true) << "\t"
+                 << getStackContent(inputStack, false)
+                 << "\terror"
+                 << endl;
+        }
     }
 };
 
@@ -255,7 +500,10 @@ int main() {
             {10, map<string, string>{{"F", "num"}}},
     };
     LL1Parser ll1Parser(grammar);
-    ll1Parser.parse();
+    string str;
+    cin >> str;
+    ll1Parser.parse(str);
+    getchar();
     getchar();
     return 0;
 }
