@@ -5,6 +5,7 @@
 #include <string>
 #include <set>
 #include <stack>
+#include <algorithm>
 
 using namespace std;
 
@@ -112,8 +113,8 @@ private:
         terminal = {"+", "-", "*", "/", "(", ")", "num"};
         nonTerminal = {"E", "T", "A", "B", "F"};
 
-        vector<string> signalSet;// 全部符号集
-        merge(terminal.begin(), terminal.end(), nonTerminal.begin(), nonTerminal.end(), std::back_inserter(signalSet));
+        vector<string> signalSet(terminal.size()+nonTerminal.size());// 全部符号集
+        merge(terminal.begin(), terminal.end(), nonTerminal.begin(), nonTerminal.end(), signalSet.begin());
         signalSet.emplace_back("ε");
         for (auto sentence: unsetGrammar) {
             Expression expression(sentence.first, sentence.second.begin()->first,
@@ -477,12 +478,12 @@ private:
                  << getStackContent(inputStack, false)
                  << "\taccept"
                  << endl;
-        } else {
+        } /*else {
             cout << getStackContent(analyticalStack, true) << "\t"
                  << getStackContent(inputStack, false)
                  << "\terror"
                  << endl;
-        }
+        }*/
     }
 };
 
