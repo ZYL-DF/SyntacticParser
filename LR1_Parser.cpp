@@ -10,22 +10,21 @@
 using namespace std;
 
 /*
-1	E -> TA
-2	A -> +TA
-3	A -> -TA
-4	A -> ε
-5	T -> FB
-6	B -> *FB
-7	B -> /FB
-8	B -> ε
-9	F -> (E)
-10	F -> num
+0	E' -> E
+1	E -> E+T
+2	E -> E-T
+3	E -> T
+4	T -> T*F
+5	T -> T/F
+6	T -> F
+7	F -> (E)
+8	F -> num
 */
-class LL1Parser {
+class LR1Parser {
 public:
     map<int, map<string, string>> unsetGrammar;
 
-    explicit LL1Parser(map<int, map<string, string>> grammar) {
+    explicit LR1Parser(map<int, map<string, string>> grammar) {
         unsetGrammar = std::move(grammar);
     };
 
@@ -121,10 +120,18 @@ private:
                                   generateSignalSet(sentence.second.begin()->second, signalSet));
             grammar.push_back(expression);
         }
-        for (const auto& item:nonTerminal) {
-            firstSet.insert(generatePair(item));
-            followSet.insert(generatePair(item));
-        }
+
+        firstSet.insert(generatePair("E"));
+        firstSet.insert(generatePair("A"));
+        firstSet.insert(generatePair("B"));
+        firstSet.insert(generatePair("T"));
+        firstSet.insert(generatePair("F"));
+
+        followSet.insert(generatePair("E"));
+        followSet.insert(generatePair("A"));
+        followSet.insert(generatePair("B"));
+        followSet.insert(generatePair("T"));
+        followSet.insert(generatePair("F"));
 
         ExpressionPositioner e{.id = 1, .signal = "$"};
         followSet.find("E")->second.insert(e);
@@ -487,10 +494,10 @@ int main() {
             {9,  map<string, string>{{"F", "(E)"}}},
             {10, map<string, string>{{"F", "num"}}},
     };
-    LL1Parser ll1Parser(grammar);
+    LR1Parser lr1Parser(grammar);
     string str;
     cin >> str;
-    ll1Parser.parse(str);
+    lr1Parser.parse(str);
     getchar();
     getchar();
     return 0;
