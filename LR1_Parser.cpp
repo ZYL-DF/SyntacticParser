@@ -4,6 +4,8 @@
 #include <map>
 #include <string>
 #include <set>
+#include <unordered_map>
+#include <algorithm>
 
 using namespace std;
 
@@ -32,9 +34,7 @@ struct Expression {
 
     bool operator==(const Expression &expression) const {
         bool idEqual = (id == expression.id);
-        bool startEqual = (start == expression.start);
-        bool endEqual = (end == expression.end);
-        return idEqual && startEqual && endEqual;
+        return idEqual;
     }
 
     bool operator<(const Expression &expression) const {
@@ -63,7 +63,6 @@ struct Item {
         bool expressLess = (expression < item.expression);
         bool pointLess = (point < item.point);
         bool lookaheadLess = (lookahead < item.lookahead);
-        //  bool lookaheadEqual = (lookahead == item.lookahead);
         if (expression == item.expression) {
             if (point == item.point) {
                 return lookaheadLess;
@@ -79,41 +78,38 @@ struct Item {
 class DFANode {
 public:
     int id;                         // 项目集规范族序号
-    map<string, DFANode &> previous;  // 能推导出当前规范族的规范族
-    map<string, DFANode &> next;      // 当前规范族能推导出的规范族
     set<Item> itemList;          // 项目集
+    map<string, DFANode> previous;  // 能推导出当前规范族的规范族
+    map<string, DFANode> next;      // 当前规范族能推导出的规范族
 
     DFANode() {
         id = -1;
     }
+
     explicit DFANode(int id) {
         this->id = id;
     }
 
-    DFANode(int id, const map<string, DFANode &> &previous, const map<string, DFANode &> &next,
+    DFANode(int id, const map<string, DFANode> &previous, const map<string, DFANode> &next,
             const set<Item> &itemList) : id(id), previous(previous), next(next), itemList(itemList) {}
 
     bool operator==(const DFANode &d) const {
-        // bool idEqual = (id == d.id);
+
         bool itemListEqual = (itemList == d.itemList);
-        // return idEqual && itemListEqual;
+
         return itemListEqual;
     }
 
     bool operator<(const DFANode &d) const {
-        // bool idLess = (id < d.id);
+
         bool itemListEqual = (itemList < d.itemList);
-        /*if (id == d.id) {
-            return itemListEqual;
-        } else {
-            return idLess;
-        }*/
+
         return itemListEqual;
     }
 
     void getClosure(const vector<string> &nonTerminal, const vector<Expression> &grammar);
 
-    void findNextNode(const vector<string> &nonTerminal, const vector<Expression> &grammar, set<DFANode> &dfa);
+    void findNextNode(vector<DFANode> &dfa);
 
     set<string> getFirstSet(Item item, const vector<string> &nonTerminal, const vector<Expression> &grammar);
 
@@ -129,7 +125,6 @@ void DFANode::getClosure(const vector<string> &nonTerminal, const vector<Express
         isChanged = false;
         auto itemListPrevious = itemList;
         for (const auto &item: itemList) {
-            // if (item.point < itemList.size()) { error?
             if (item.point < item.expression.end.size()) {
                 string currentSignal = item.expression.end[item.point];
                 if (std::find(nonTerminal.begin(), nonTerminal.end(),
@@ -161,32 +156,43 @@ void DFANode::getClosure(const vector<string> &nonTerminal, const vector<Express
  * @param grammar
  * @param dfa
  */
-void DFANode::findNextNode(const vector<string> &nonTerminal, const vector<Expression> &grammar, set<DFANode> &dfa) {
+void DFANode::findNextNode(vector<DFANode> &dfa) {
 
-    set<DFANode> dfaReady; // 候选项目集的集合,里面的项目集还未与已经创建的项目集进行比较
+    vector<DFANode *> dfaReady; // 候选项目集的集合,里面的项目集还未与已经创建的项目集进行比较
     for (const auto &item: itemList) {
         if (item.point < item.expression.end.size()) {
             // 不对归约项目进行构建
             Item newItem(item.expression, item.point + 1, item.lookahead);
-
-            if (next.find(item.expression.end[item.point]) == next.end()) {
+            auto iterator = next.find(item.expression.end[item.point]);
+            if (iterator == next.end()) {
                 // 如果项目集对这个符号的后续项目集不存在,需要创建新的项目集
-                DFANode newDFANode((int) dfa.size());
-                newDFANode.previous.insert(map<string, DFANode &>::value_type(item.expression.end[item.point], *this));
+                DFANode newDFANode((int) (dfa.size() + dfaReady.size()));
+                // newDFANode.previous.insert(map<string, DFANode>::value_type(item.expression.end[item.point], *this));
+                newDFANode.previous[item.expression.end[item.point]] = *this;
                 newDFANode.itemList.insert(newItem);
-                next.insert(map<string,DFANode&>::value_type(item.expression.end[item.point],newDFANode));
-                dfaReady.insert(newDFANode);
+                // next.insert(map<string, DFANode>::value_type(item.expression.end[item.point], newDFANode));
+                next[item.expression.end[item.point]] = newDFANode;
+                dfaReady.push_back(&next[item.expression.end[item.point]]);
             } else {
                 // 如果项目集对这个符号的后续项目集存在,向这个后续项目集加入新的项目
-                auto nextNode = next.find(item.expression.end[item.point])->second;
-                nextNode.itemList.insert(newItem);
+                if (!dfaReady.empty()) {
+                    iterator->second.itemList.insert(newItem);
+                    // next.find(item.expression.end[item.point])->second.itemList.insert(newItem);
+                }
             }
         }
     }
+    auto selfNext = this->next;
 
-    for (const auto& node: dfaReady) {
-        if (dfa.find(node) != dfa.end()) {
-            dfa.insert(node);
+    for (auto node: dfaReady) {
+        auto iterator = std::find(dfa.begin(), dfa.end(), *node);
+        if (iterator == dfa.end()) {
+            // 当前dfa中没有这个项目集
+            dfa.push_back(*node);
+        } else {
+            // 否则,直接将当前项目集对应符号的next指向已经存在的项目集
+            // next.find(node->previous.begin()->first)->second = *iterator;
+            selfNext[node->previous.begin()->first] = *iterator;
         }
     }
 }
@@ -246,6 +252,21 @@ bool DFANode::mergeLookahead(const Item &newItem) {
     return false;
 }
 
+struct PredictIndex {
+    int id;
+    string action;
+    map<string, int> move;
+
+    PredictIndex(int id1, string action1) {
+        id = id1;
+        action = std::move(action1);
+        vector<string> signalList = {"+", "-", "*", "/", "(", ")", "num", "$", "E", "T", "F"};
+        for (const auto &signal: signalList) {
+            move[signal] = 666;
+        }
+    }
+};
+
 class LR1Parser {
 public:
     map<int, map<string, string>> unsetGrammar;
@@ -258,6 +279,7 @@ public:
         // 语法解析器主函数
         init();
         generateDFA();
+        generateTable();
         // analyse(str);
     }
 
@@ -265,7 +287,8 @@ private:
     vector<string> terminal;
     vector<string> nonTerminal;
     vector<Expression> grammar;
-    set<DFANode> dfa;
+    vector<DFANode> dfa;
+    vector<PredictIndex> predictTable;
 
     vector<string> generateSignalSet(const string &sentence, const vector<string> &wordList) {
         string sentenceCopy = sentence;
@@ -302,7 +325,7 @@ private:
         lookaheadList.insert("$");
         Item item(expression, 0, lookaheadList);
         dfaNode.itemList.insert(item);
-        dfa.insert(dfaNode);
+        dfa.push_back(dfaNode);
     }
 
     Expression getExpression(int id) {
@@ -316,6 +339,8 @@ private:
     }
 
     void generateDFA();
+
+    void generateTable();
 };
 
 void LR1Parser::generateDFA() {
@@ -326,21 +351,28 @@ void LR1Parser::generateDFA() {
      *   如果推导的结果项目集已经存在,当前项目集的next集合和结果项目集的previous集要增加
      */
     bool isChanged = true;
+    int dfaStartPos = 0;
     while (isChanged) {
         isChanged = false;
         auto dfaPrevious = dfa;
-        for (const auto &dfaNode: dfa) {
-            const_cast<DFANode&>(dfaNode).getClosure(nonTerminal, grammar);
-            // dfaNode.getClosure(nonTerminal, grammar); // 对内部全部式子求闭包
+        auto dfaSize = (int) dfa.size();
+        for (auto &dfaNode: dfa) {
+            dfaNode.getClosure(nonTerminal, grammar);
         }
-        for (const auto &dfaNode: dfa) {
-            const_cast<DFANode&>(dfaNode).findNextNode(nonTerminal, grammar, dfa); // 求新的项目集
-            // dfaNode.findNextNode(nonTerminal, grammar, dfa); // 求新的项目集
+
+        for (auto iterator = dfaStartPos; iterator < dfaSize; ++iterator) {
+            dfa[iterator].findNextNode(dfa); // 求新的项目集
         }
+
+        dfaStartPos += dfaSize;
         if (dfa != dfaPrevious) {
             isChanged = true;
         }
     }
+
+}
+
+void LR1Parser::generateTable() {
 
 }
 
