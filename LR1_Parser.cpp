@@ -6,6 +6,7 @@
 #include <set>
 #include <unordered_map>
 #include <algorithm>
+#include <stack>
 
 using namespace std;
 
@@ -109,7 +110,7 @@ public:
 
     void getClosure(const vector<string> &nonTerminal, const vector<Expression> &grammar);
 
-    void findNextNode(vector<DFANode*> &dfa, int &nodeNum,vector<string> &nonTerminal,vector<Expression> &grammar);
+    void findNextNode(vector<DFANode *> &dfa, int &nodeNum, vector<string> &nonTerminal, vector<Expression> &grammar);
 
     set<string> getFirstSet(Item item, const vector<string> &nonTerminal, const vector<Expression> &grammar);
 
@@ -156,7 +157,8 @@ void DFANode::getClosure(const vector<string> &nonTerminal, const vector<Express
  * @param grammar
  * @param dfa
  */
-void DFANode::findNextNode(vector<DFANode*> &dfa, int &nodeNum,vector<string> &nonTerminal,vector<Expression> &grammar) {
+void
+DFANode::findNextNode(vector<DFANode *> &dfa, int &nodeNum, vector<string> &nonTerminal, vector<Expression> &grammar) {
 
     vector<DFANode *> dfaReady; // 候选项目集的集合,里面的项目集还未与已经创建的项目集进行比较
     for (const auto &item: itemList) {
@@ -186,10 +188,10 @@ void DFANode::findNextNode(vector<DFANode*> &dfa, int &nodeNum,vector<string> &n
     auto selfNext = this->next;
 
     for (auto node: dfaReady) {
-        DFANode * tempNode = nullptr;
-        for(auto iterator :dfa) {
-            node->getClosure(nonTerminal,grammar);
-            if(*iterator == *node) {
+        DFANode *tempNode = nullptr;
+        for (auto iterator: dfa) {
+            node->getClosure(nonTerminal, grammar);
+            if (*iterator == *node) {
                 tempNode = iterator;
                 break;
             }
@@ -203,11 +205,8 @@ void DFANode::findNextNode(vector<DFANode*> &dfa, int &nodeNum,vector<string> &n
             dfa.push_back(node);
         } else {
             // 否则,直接将当前项目集对应符号的next指向已经存在的项目集
-            // next.find(node->previous.begin()->first)->second = *iterator;
-            // selfNext[node->previous.begin()->first] = *iterator;
-            // this->next[node->previous.begin()->first] = *iterator;
             this->next[node->previous.begin()->first] = tempNode;
-            delete(node);
+            delete (node);
         }
     }
 }
@@ -300,13 +299,15 @@ public:
         unsetGrammar = std::move(inputGrammar);
     };
 
+    void analyse(const string &input);
+
     void parse(const string &str) {
         // 语法解析器主函数
         init();
         generateDFA();
         generateTable();
-        printTable();
-        // analyse(str);
+        // printTable();
+        analyse(str);
     }
 
     int nodeNum = 1;
@@ -315,7 +316,7 @@ private:
     vector<string> terminal;
     vector<string> nonTerminal;
     vector<Expression> grammar;
-    vector<DFANode*> dfa;
+    vector<DFANode *> dfa;
     vector<PredictIndex> predictTable;
 
     vector<string> generateSignalSet(const string &sentence, const vector<string> &wordList) {
@@ -347,7 +348,7 @@ private:
                                   generateSignalSet(sentence.second.begin()->second, signalSet));
             grammar.push_back(expression);
         }
-        auto * dfaNode = new DFANode(0);
+        auto *dfaNode = new DFANode(0);
         Expression expression = grammar[0];
         set<string> lookaheadList;
         lookaheadList.insert("$");
@@ -372,6 +373,8 @@ private:
     void generateTable();
 
     void printTable();
+
+    PredictIndex getPredictIndex(int id);
 };
 
 void LR1Parser::generateDFA() {
@@ -392,7 +395,7 @@ void LR1Parser::generateDFA() {
         }
 
         for (auto iterator = dfaStartPos; iterator < dfaSize; ++iterator) {
-            dfa[iterator]->findNextNode(dfa, nodeNum,nonTerminal,grammar); // 求新的项目集
+            dfa[iterator]->findNextNode(dfa, nodeNum, nonTerminal, grammar); // 求新的项目集
         }
 
         dfaStartPos = dfaSize;
@@ -428,6 +431,12 @@ void LR1Parser::generateTable() {
 }
 
 void LR1Parser::printTable() {
+    cout << "\t";
+    set<string> signalList = {"+", "-", "*", "/", "(", ")", "num", "$", "E", "T", "F"};
+    for (const auto &signal: signalList) {
+        cout << signal << "\t";
+    }
+    cout << endl;
     for (const auto &predictIndex: predictTable) {
         cout << predictIndex.id << "\t";
         for (const auto &index: predictIndex.move) {
@@ -435,6 +444,94 @@ void LR1Parser::printTable() {
         }
         cout << endl;
     }
+}
+
+void LR1Parser::analyse(const string &input) {
+    struct analyticalStruct {
+        int status;
+        string signal;
+    };
+    string str;
+    for (auto character: input) {
+        if (character == 'n') {
+            str += "num";
+        } else {
+            str += character;
+        }
+    }
+
+    vector<string> signalSet = {"+", "-", "*", "/", "(", ")", "num", "$", "E", "T", "F"};
+    vector<string> inputSet = generateSignalSet(str, signalSet);
+    stack<analyticalStruct> analyticalStack;
+    // 分析栈
+    stack<string> inputStack;
+    // 输入栈
+    analyticalStack.push({.status = 0, .signal = "$"});
+    inputStack.emplace("$");
+    for_each(inputSet.rbegin(), inputSet.rend(),
+             [&inputStack](const string &input) { inputStack.emplace(input); });
+
+    /*  n+n
+        shift
+        8
+        6
+        3
+        shift
+        shift
+        8
+        6
+        1
+        accept
+     */
+    while (!analyticalStack.empty()) {
+        auto currentStatus = analyticalStack.top().status;
+        PredictIndex currentIndex = getPredictIndex(currentStatus);
+
+        if (currentIndex.move[inputStack.top()].action != "Error") {
+            // 预测表当前状态对应输入栈顶部符号不是出错状态
+            auto currentAction = currentIndex.move[inputStack.top()].action;
+            if (currentAction == "Shift") {
+                // 移进
+                analyticalStack.push(
+                        {.status = currentIndex.move[inputStack.top()].target, .signal = inputStack.top()});
+                inputStack.pop();
+                cout << "shift" << endl;
+            } else if (currentAction == "Reduce") {
+                // 归约
+                Expression expression = getExpression(currentIndex.move[inputStack.top()].target);
+                for (int i = 0; i < expression.end.size(); i++) {
+                    if (analyticalStack.size() == 1) {
+                        // 符号栈已空(只剩下$),出错
+                        cout << "error";
+                        return;
+                    }
+                    analyticalStack.pop();
+                }
+                auto nextStatus = getPredictIndex(analyticalStack.top().status);
+                // 这个地方可能会报错,但先忽略
+                analyticalStack.push({.status = nextStatus.move[expression.start].target, .signal = expression.start});
+                cout << expression.id << endl;
+
+            } else {
+                // 接受
+                cout << "accept";
+                return;
+            }
+        } else {
+            // 出错
+            cout << "error";
+            return;
+        }
+    }
+}
+
+PredictIndex LR1Parser::getPredictIndex(int id) {
+    for (const auto &index: predictTable) {
+        if (index.id == id) {
+            return index;
+        }
+    }
+    return PredictIndex(-1);
 }
 
 int main() {
@@ -450,7 +547,7 @@ int main() {
             {8, map<string, string>{{"F", "num"}}},
     };
     LR1Parser lr1Parser(grammar);
-    string str;
+    string str = "n+n";
     // cin >> str;
     lr1Parser.parse(str);
     getchar();
